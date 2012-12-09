@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+
+# Copyright 2012 Hanborq Inc. All Rights Reserved.
+# 
+# distat -- A simple tool for collecting resource usage of cluster.
+# Author: Clay Chiang (chiangbing@gmail.com)
+
+
+this="${BASH_SOURCE-$0}"
+bin=$(cd -P -- "$(dirname -- "$this")" && pwd -P)
+script="$(basename -- "$this")"
+this="$bin/$script"
+
+# Constants
+TB=1099511627776
+
+
+# Log function.
+log() {
+    echo "["$(date +"%Y-%m-%d %H:%M:%S")"] "$1 >> $LOGFILE
+}
+
+# Do the dirty init work.
+init() {
+    [ -f ~/.bashrc ] && . ~/.bashrc
+    [ -f ~/.bash_profile ] && . ~/.bash_profile
+
+    if [ -f distat-env.sh ]; then
+        . "$bin"/distat-env.sh
+    fi
+
+    # init LOGFILE first to use log function
+    LOG_DIR=${LOG_DIR:-"$bin"/logs}
+    [ ! -d ${LOG_DIR} ] && mkdir -p ${LOG_DIR}
+    LOGFILE=${LOGFILE:-"$LOG_DIR"/distat.log}
+
+    # init tmp dir and pid file
+    TMP_DIR=${TMP_DIR:-"$bin"/tmp}
+    [ ! -d ${TMP_DIR} ] && mkdir -p ${TMP_DIR}
+    PID_FILE=${PID_FILE:-"$TMP_DIR"/distat."$INSTANCE_ID".pid}
+    echo $$ > $PID_FILE
+
+    INSTANCE_ID=${INSTANCE_ID:-0}
+    log "INSTANCE_ID=$INSTANCE_ID"
+    # Max file size: default to 1M
+    MAX_FILESIZE=${MAX_FILESIZE:-1048576}   
+    log "MAX_FILESIZE=$MAX_FILESIZE"
+    # Max file time: 10 years, almost no limit
+    MAX_FILETIME=${MAX_FILETIME:-3153600000}  
+    log "MAX_FILETIME=$MAX_FILETIME"
+    # Max file seq number, when exceeded, loop back to 0
+    MAX_SEQ=${MAX_SEQ:-9999}
+    log "MAX_SEQ=$MAX_SEQ"
+
+    # STATE_FILE store distat's running state
+    STATE_FILE=${STATE_FILE:-"$bin"/distat."$INSTANCE_ID".stat}
+    init_state
+
+    RESULT_DIR=${RESULT_DIR:-"$bin"/results}
+    [ ! -d ${RESULT_DIR} ] && mkdir -p ${RESULT_DIR}
+    log "RESULT_DIR=$RESULT_DIR"
+
+    # slave hosts
+    SLAVES=${SLAVES:-localhost}
+    log "SLAVES:"
+    for _slave in ${SLAVES[@]}; do
+        log "-- $_slave"
+    done
+
+    # net interface to do stat
+    NET_IFACE=${NET_IFACE:-bond0}
+    log "NET_IFACE=$NET_IFACE"
+    # disk device prefix
+    DISK_PREFIX=${DISK_PREFIX:-sd}
+    log "DISK_PREFIX=$DISK_PREFIX"
+
+    # interval
+    INTERVAL=${INTERVAL:-60}
+    log "INTERVAL=$INTERVAL"
+
+    #Output formatting
+    DELIMITER=${DELIMITER:-","}
+    log "DELIMITER=$DELIMITER"
+}
+
+# Init distat state.
+init_state() {
+    # source STATE_FILE if exists
+    [ -f $STATE_FILE ] && . $STATE_FILE
+
+    # last seq number used
+    STATE_SEQ=${STATE_SEQ:-0}
+    # last filename used
+    STATE_FILENAME=${STATE_FILENAME:-""}
+    # last stat time
+    STATE_STATTIME=${STATE_STATTIME:-0}
+
+    if [[ "$STATE_STATTIME" -eq "0" ]]; then
+        log "Init stat"
+        # if first time run, write state back to STATE_FILE
+        # should write it as bash sourcable :)
+        cat > $STATE_FILE <<EOF
+STATE_SEQ=$STATE_SEQ
+STATE_FILENAME=$STATE_FILENAME
+STATE_STATTIME=$STATE_STATTIME
+EOF
+    fi
+}
+
+# Update a distat state variable.
+# Args:
+#  $1: varibale name
+#  $2: variable value
+update_state() {
+    _varname=$1
+    _varvalue=$2
+
+    sed -i -e '/'$_varname'=/ s/.*/'$_varname'='$_varvalue'/' $STATE_FILE
+    eval $_varname"="$_varvalue
+}
+
+# Run command on all hosts in $SLAVES
+slave() {
+    for _slave in ${SLAVES[@]}; do
+        ssh $_slave $"${@// /\\ }" \
+            2>&1 | sed "s/^/$_slave: /" &
+    done
+}
+
+# Collect stat for all hosts in $SLAVES
+collect() {
+    _filename=$1
+    shift
+
+    _tmpfile=`mktemp --tmpdir=${TMP_DIR}`
+    slave sar -u -n DEV -r -d -p 1 1 \| grep Average  > $_tmpfile
+    wait
+
+    _old_count=`wc -l ${TMP_DIR}/$_filename | awk '{print $1}'`
+
+    for _slave in ${SLAVES[@]}; do
+        _cpu_usage=`sed -n -e '/'$_slave'.*CPU/ {n;p}' $_tmpfile | awk '{print $4+$5+$6}'`
+        _mem_usage=`sed -n -e '/'$_slave'.*kbmem/ {n;p}' $_tmpfile | awk '{print ($4-$6-$7)/($3+$4)*100}'`
+        _net_rxkb=`sed -n -e '/'$_slave'.*'$NET_IFACE'/ {p}' $_tmpfile | awk '{print $7}'`
+        _net_txkb=`sed -n -e '/'$_slave'.*'$NET_IFACE'/ {p}' $_tmpfile | awk '{print $8}'`
+        _disk_rxkb=`sed -n -e '/'$_slave'.*'$DISK_PREFIX'/ {p}' $_tmpfile | awk '{print $5*0.5}' | paste -sd+ | bc`
+        _disk_txrb=`sed -n -e '/'$_slave'.*'$DISK_PREFIX'/ {p}' $_tmpfile | awk '{print $6*0.5}' | paste -sd+ | bc`
+
+        _d=$DELIMITER
+        # "${_cpu_usage} ${_mem_usage} ${_net_txkb} ${_net_rxkb} ${_disk_txrb} ${_disk_rxkb}"
+        printf "%s${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f\n" \
+            "$_slave" "$_cpu_usage" "$_mem_usage" "$_disk_rxkb" "$_disk_txrb" "$_net_rxkb" "$_net_txkb" >> ${TMP_DIR}/$_filename
+    done
+
+    _new_count=`wc -l ${TMP_DIR}/$_filename | awk '{print $1}'`
+    _delta_count=$(( $_new_count - $_old_count ))
+    log "Collect $_delta_count new lines for ${#SLAVES[@]} hosts"
+
+    rm $_tmpfile
+    unset _sar_output _stat _cpu_usage _mem_usage _net_rxkb _net_txkb \
+            _disk_rxkb _disk_txrb _d _tmpfile _old_count _new_count _delta_count
+}
+
+# Get filename to write stat.
+filename() {
+    _create_newfile=0
+    if [ -z "$STATE_FILENAME" -o ! -f "${TMP_DIR}/${STATE_FILENAME}" ]; then
+        _create_newfile=1
+    else
+        # check filesize
+        _filesize=$( ls -l ${TMP_DIR}/$STATE_FILENAME | awk '{print $5}' )
+        if [ "$_filesize" -ge "$MAX_FILESIZE" ]; then
+            log "Create new file due to max file size limiation: $MAX_FILESIZE"
+            _create_newfile=1
+        fi
+        # check file time
+        _currtime=$( date +%s )
+        _filetime=$(( $_currtime - $STATE_STATTIME ))
+        if [ "$_filetime" -ge "$MAX_FILETIME" ]; then
+            log "Create new file due to max file open time limiation: $MAX_FILETIME"
+            _create_newfile=1
+        fi
+        # check new date
+        _fileday=$( date --date="@$STATE_STATTIME" | awk '{print $2, $3}' )
+        _today=$( date | awk '{print $2, $3 }' )
+        if [ "x$_fileday" != "x$_today" ]; then
+            log "Create new file due to new day come"
+            _create_newfile=1
+        fi
+    fi
+
+    if [ "$_create_newfile" == "1" ]; then
+        # move current file to RESULT_DIR
+        if [ -f "${TMP_DIR}/$STATE_FILENAME" ]; then
+            log "Move completed file $STATE_FILENAME to $RESULT_DIR"
+            mv ${TMP_DIR}/$STATE_FILENAME ${RESULT_DIR}/$STATE_FILENAME
+        fi
+
+        # compose new file name
+        _seq=$(( $STATE_SEQ + 1 ))
+        if [ "$_seq" -gt "$MAX_SEQ" ]; then
+            # loop back to 0
+            _seq=0
+        fi
+        _filename=$( printf "DISTAT%s.%04d" $( date "+%Y%m%d%H" ) $_seq )
+
+        # update distat state
+        update_state "STATE_FILENAME" $_filename
+        update_state "STATE_SEQ" $_seq
+
+        log "Create new file $_filename"
+        touch ${TMP_DIR}/$_filename
+        echo $_filename
+    else
+        # return current file
+        log "Use current file $_filename"
+        echo $STATE_FILENAME
+    fi
+
+    unset _create_newfile _filesize _currtime _filetime _fileday _today \
+            _seq _filetime
+}
+
+
+# Main
+
+init
+
+while `true`; do
+    _filename=`filename`
+    collect $_filename
+
+    _stattime=$(date +%s)
+    update_state STATE_STATTIME $_stattime
+
+    sleep $(($INTERVAL - 1))
+done
