@@ -48,11 +48,11 @@ One line for each host at every collect interval.<br/>
 Configuration
 =============
 <table>
-    <th>
-        <td>Item</td>
-        <td>Description</td>
-        <td>Default Value</td>
-    </th>
+    <tr>
+        <th>Item</th>
+        <th>Description</th>
+        <th>Default Value</th>
+    </tr>
     <tr>
         <td>MAX_FILESIZE</td>
         <td>Max size of result file (in bytes)</td>
