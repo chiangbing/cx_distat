@@ -14,6 +14,16 @@ from cluster. Current statistics include:
     <li>Network write rate (in KB)</li>
 </ul> 
 
+Dependencies
+============
+<ul>
+    <li><b>ssh</b>: <b>dist</b> currently use ssh to execute command on remote hosts.
+             Also make sure that remote hosts can be login via ssh without password.</li>
+    <li><b>sar</b>: use to do the stat work. All remote hosts should have sar installed.</li>
+    <li><b>bash</b>: since <b>dist</b> is written in bash.</li>
+    
+</ul>
+
 Usage
 =====
 
@@ -34,3 +44,5 @@ HOSTNAME,CPU,MEM,DISK_READ,DISK_WRITE,NET_READ,NET_WRITE
 </code>
 <br/>
 One line for each host at every collect interval.<br/>
+
+
