@@ -45,4 +45,67 @@ HOSTNAME,CPU,MEM,DISK_READ,DISK_WRITE,NET_READ,NET_WRITE
 <br/>
 One line for each host at every collect interval.<br/>
 
-
+Configuration
+=============
+<table>
+    <th>
+        <td>Item</td>
+        <td>Description</td>
+        <td>Default Value</td>
+    </th>
+    <tr>
+        <td>MAX_FILESIZE</td>
+        <td>Max size of result file (in bytes)</td>
+        <td>1048576 (1M)</td>
+    </tr>
+    <tr>
+        <td>MAX_FILETIME</td>
+        <td>Max open time of result file (in seconds)</td>
+        <td>3153600000 (10 years)</td>
+    </tr>
+    <tr>
+        <td>MAX_SEQ</td>
+        <td>Max sequence number of result file (as suffix)</td>
+        <td>9999</td>
+    </tr>
+    <tr>
+        <td>TMP_DIR</td>
+        <td>Temporary directory for intermediate files.</td>
+        <td>tmp</td>
+    </tr>
+    <tr>
+        <td>PID_FILE</td>
+        <td>PID_FILE contains pid of running script (for manually killing).</td>
+        <td>tmp/distat.{instanceid}.pid</td>
+    </tr>
+    <tr>
+        <td>LOG_DIR</td>
+        <td>Log directory.</td>
+        <td>logs</td>
+    </tr>
+    <tr>
+        <td>RESULT_DIR</td>
+        <td>Result file directory.</td>
+        <td>results</td>
+    </tr>
+    <tr>
+        <td>SLAVES</td>
+        <td>A list of hosts to collect statistics.</td>
+        <td>localhost</td>
+    </tr>
+    <tr>
+        <td>NET_IFACE</td>
+        <td>Net interface device name.</td>
+        <td>bond0</td>
+    </tr>
+    <tr>
+        <td>DISK_PREFIX</td>
+        <td>Disks device name prefix.</td>
+        <td>sd (for SATA disks)</td>
+    </tr>
+    <tr>
+        <td>INTERVAL</td>
+        <td>Collecting interval (in seconds).</td>
+        <td>60 (1 minute)</td>
+    </tr>
+</table>
