@@ -224,12 +224,12 @@ filename() {
         echo $_filename
     else
         # return current file
-        log "Use current file $_filename"
+        log "Use current file $STATE_FILENAME"
         echo $STATE_FILENAME
     fi
 
     unset _create_newfile _filesize _currtime _filetime _fileday _today \
-            _seq _filetime
+            _seq _filetime _filename
 }
 
 
