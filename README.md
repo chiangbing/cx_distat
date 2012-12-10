@@ -34,8 +34,13 @@ Usage
 
 Output
 ======
-The result files will be in RESULT_DIR. The result produce timing will be control by 
-MAX_FILETIME and MAX_FILESIZE(max file open time).<br/>
+The result files will be in RESULT_DIR. A result file is produced by one of below timings:<br/>
+<ul>
+    <li>The size of temporary resutl file(stored in TMP_DIR) reach MAX_FILETIME limit.</li> 
+    <li>The time of temporary result file is longer than MAX_FILESIZE(max file open time).</li>
+    <li>A new day come.</li>
+</ul>
+
 The format of the result file is delimited, and the field delimiter is customizable
 with DELIMITER. A result file may contains lines of statistics. Each line is of format
 (take DELIMITER=, for example):<br/>
