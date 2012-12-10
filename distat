@@ -34,12 +34,7 @@ init() {
     [ ! -d ${LOG_DIR} ] && mkdir -p ${LOG_DIR}
     LOGFILE=${LOGFILE:-"$LOG_DIR"/distat.log}
 
-    # init tmp dir and pid file
-    TMP_DIR=${TMP_DIR:-"$bin"/tmp}
-    [ ! -d ${TMP_DIR} ] && mkdir -p ${TMP_DIR}
-    PID_FILE=${PID_FILE:-"$TMP_DIR"/distat."$INSTANCE_ID".pid}
-    echo $$ > $PID_FILE
-
+    # init variables in distat-env.sh
     INSTANCE_ID=${INSTANCE_ID:-0}
     log "INSTANCE_ID=$INSTANCE_ID"
     # Max file size: default to 1M
@@ -51,6 +46,12 @@ init() {
     # Max file seq number, when exceeded, loop back to 0
     MAX_SEQ=${MAX_SEQ:-9999}
     log "MAX_SEQ=$MAX_SEQ"
+
+    # init tmp dir and pid file
+    TMP_DIR=${TMP_DIR:-"$bin"/tmp}
+    [ ! -d ${TMP_DIR} ] && mkdir -p ${TMP_DIR}
+    PID_FILE=${PID_FILE:-"$TMP_DIR"/distat."$INSTANCE_ID".pid}
+    echo $$ > $PID_FILE
 
     # STATE_FILE store distat's running state
     STATE_FILE=${STATE_FILE:-"$bin"/distat."$INSTANCE_ID".stat}
@@ -71,8 +72,8 @@ init() {
     NET_IFACE=${NET_IFACE:-bond0}
     log "NET_IFACE=$NET_IFACE"
     # disk device prefix
-    DISK_PREFIX=${DISK_PREFIX:-sd}
-    log "DISK_PREFIX=$DISK_PREFIX"
+    DISK_DEV=${DISK_DEV:-sd}
+    log "DISK_DEV=$DISK_DEV"
 
     # interval
     INTERVAL=${INTERVAL:-60}
@@ -127,11 +128,15 @@ slave() {
     done
 }
 
-# Collect stat for all hosts in $SLAVES
+# Collect stat for all hosts in $SLAVES.
+# Args:
+#  $1: file name to write stat to
 collect() {
     _filename=$1
     shift
 
+    _stattime=$(date +%s)
+    _stattime_human=$(date +%Y%m%d%H%M%S)
     _tmpfile=`mktemp --tmpdir=${TMP_DIR}`
     slave sar -u -n DEV -r -d -p 1 1 \| grep Average  > $_tmpfile
     wait
@@ -141,16 +146,20 @@ collect() {
     for _slave in ${SLAVES[@]}; do
         _cpu_usage=`sed -n -e '/'$_slave'.*CPU/ {n;p}' $_tmpfile | awk '{print $4+$5+$6}'`
         _mem_usage=`sed -n -e '/'$_slave'.*kbmem/ {n;p}' $_tmpfile | awk '{print ($4-$6-$7)/($3+$4)*100}'`
-        _net_rxkb=`sed -n -e '/'$_slave'.*'$NET_IFACE'/ {p}' $_tmpfile | awk '{print $7}'`
-        _net_txkb=`sed -n -e '/'$_slave'.*'$NET_IFACE'/ {p}' $_tmpfile | awk '{print $8}'`
-        _disk_rxkb=`sed -n -e '/'$_slave'.*'$DISK_PREFIX'/ {p}' $_tmpfile | awk '{print $5*0.5}' | paste -sd+ | bc`
-        _disk_txrb=`sed -n -e '/'$_slave'.*'$DISK_PREFIX'/ {p}' $_tmpfile | awk '{print $6*0.5}' | paste -sd+ | bc`
+        _net_rxkb=`sed -n -e '/'$_slave'.*'$NET_IFACE'/ {p}' $_tmpfile | awk '{print $7}' | paste -sd+ | bc`
+        _net_txkb=`sed -n -e '/'$_slave'.*'$NET_IFACE'/ {p}' $_tmpfile | awk '{print $8}' | paste -sd+ | bc`
+        _disk_rxkb=`sed -n -e '/'$_slave'.*'$DISK_DEV'/ {p}' $_tmpfile | awk '{print $5*0.5}' | paste -sd+ | bc`
+        _disk_txrb=`sed -n -e '/'$_slave'.*'$DISK_DEV'/ {p}' $_tmpfile | awk '{print $6*0.5}' | paste -sd+ | bc`
 
         _d=$DELIMITER
         # "${_cpu_usage} ${_mem_usage} ${_net_txkb} ${_net_rxkb} ${_disk_txrb} ${_disk_rxkb}"
-        printf "%s${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f\n" \
-            "$_slave" "$_cpu_usage" "$_mem_usage" "$_disk_rxkb" "$_disk_txrb" "$_net_rxkb" "$_net_txkb" >> ${TMP_DIR}/$_filename
+        printf "%s${_d}%s${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f${_d}%.2f\n" \
+            "$_stattime_human" "$_slave" "$_cpu_usage" "$_mem_usage" "$_disk_rxkb" "$_disk_txrb" \
+            "$_net_rxkb" "$_net_txkb" >> ${TMP_DIR}/$_filename
     done
+
+    # update stattime in state file
+    update_state STATE_STATTIME $_stattime
 
     _new_count=`wc -l ${TMP_DIR}/$_filename | awk '{print $1}'`
     _delta_count=$(( $_new_count - $_old_count ))
@@ -158,7 +167,8 @@ collect() {
 
     rm $_tmpfile
     unset _sar_output _stat _cpu_usage _mem_usage _net_rxkb _net_txkb \
-            _disk_rxkb _disk_txrb _d _tmpfile _old_count _new_count _delta_count
+            _disk_rxkb _disk_txrb _d _tmpfile _old_count _new_count _delta_count \
+            _stattime _stattime_human
 }
 
 # Get filename to write stat.
@@ -229,9 +239,6 @@ init
 while `true`; do
     _filename=`filename`
     collect $_filename
-
-    _stattime=$(date +%s)
-    update_state STATE_STATTIME $_stattime
 
     sleep $(($INTERVAL - 1))
 done

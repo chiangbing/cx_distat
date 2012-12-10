@@ -40,7 +40,7 @@ The format of the result file is delimited, and the field delimiter is customiza
 with DELIMITER. A result file may contains lines of statistics. Each line is of format
 (take DELIMITER=, for example):<br/>
 <code>
-HOSTNAME,CPU,MEM,DISK_READ,DISK_WRITE,NET_READ,NET_WRITE
+TIMESTAMP,HOSTNAME,CPU,MEM,DISK_READ,DISK_WRITE,NET_READ,NET_WRITE
 </code>
 <br/>
 One line for each host at every collect interval.<br/>
@@ -95,12 +95,12 @@ Configuration
     </tr>
     <tr>
         <td>NET_IFACE</td>
-        <td>Net interface device name.</td>
+        <td>Net interface device name pattern (regex).</td>
         <td>bond0</td>
     </tr>
     <tr>
-        <td>DISK_PREFIX</td>
-        <td>Disks device name prefix.</td>
+        <td>DISK_DEV</td>
+        <td>Disks device name pattern (regex).</td>
         <td>sd (for SATA disks)</td>
     </tr>
     <tr>

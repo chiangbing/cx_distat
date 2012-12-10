@@ -34,7 +34,7 @@
 
 # Disks device name prefix
 # Default: sd
-# DISK_PREFIX
+# DISK_DEV
 
 # Result file field delimiter
 # Default: ,(comma)
