@@ -117,7 +117,7 @@ update_state() {
     _varvalue=$2
 
     sed -i -e '/'$_varname'=/ s/.*/'$_varname'='$_varvalue'/' $STATE_FILE
-    eval $_varname"="$_varvalue
+    . $STATE_FILE
 }
 
 # Run command on all hosts in $SLAVES
@@ -175,6 +175,7 @@ collect() {
 filename() {
     _create_newfile=0
     if [ -z "$STATE_FILENAME" -o ! -f "${TMP_DIR}/${STATE_FILENAME}" ]; then
+        log "Create new file for first run"
         _create_newfile=1
     else
         # check filesize
